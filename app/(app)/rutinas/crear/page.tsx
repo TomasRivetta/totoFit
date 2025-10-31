@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Plus, Trash2, Edit2, Check, X, ExternalLink, ArrowLeft } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import Link from "next/link"
 
 type Exercise = {
@@ -26,6 +27,8 @@ type Exercise = {
   reps: number
   weight: number
   orderIndex: number
+  exerciseType: 'weight' | 'time'
+  durationSeconds: number | null
 }
 
 export default function CrearRutinaPage() {
@@ -44,6 +47,9 @@ export default function CrearRutinaPage() {
     sets: 3,
     reps: 10,
     weight: 0,
+    exerciseType: 'weight' as 'weight' | 'time',
+    durationMinutes: 0,
+    durationSeconds: 0,
   })
 
   const resetForm = () => {
@@ -53,11 +59,16 @@ export default function CrearRutinaPage() {
       sets: 3,
       reps: 10,
       weight: 0,
+      exerciseType: 'weight',
+      durationMinutes: 0,
+      durationSeconds: 0,
     })
   }
 
   const handleAddExercise = () => {
     if (!exerciseForm.name.trim()) return
+
+    const totalSeconds = exerciseForm.durationMinutes * 60 + exerciseForm.durationSeconds
 
     const newExercise: Exercise = {
       id: crypto.randomUUID(),
@@ -67,6 +78,8 @@ export default function CrearRutinaPage() {
       reps: exerciseForm.reps,
       weight: exerciseForm.weight,
       orderIndex: exercises.length,
+      exerciseType: exerciseForm.exerciseType,
+      durationSeconds: exerciseForm.exerciseType === 'time' ? totalSeconds : null,
     }
 
     setExercises([...exercises, newExercise])
@@ -77,12 +90,18 @@ export default function CrearRutinaPage() {
   const handleEditExercise = (id: string) => {
     const exercise = exercises.find((e) => e.id === id)
     if (exercise) {
+      const durationMins = exercise.durationSeconds ? Math.floor(exercise.durationSeconds / 60) : 0
+      const durationSecs = exercise.durationSeconds ? exercise.durationSeconds % 60 : 0
+      
       setExerciseForm({
         name: exercise.name,
         mediaUrl: exercise.mediaUrl,
         sets: exercise.sets,
         reps: exercise.reps,
         weight: exercise.weight,
+        exerciseType: exercise.exerciseType,
+        durationMinutes: durationMins,
+        durationSeconds: durationSecs,
       })
       setEditingExerciseId(id)
     }
@@ -90,6 +109,8 @@ export default function CrearRutinaPage() {
 
   const handleUpdateExercise = () => {
     if (!exerciseForm.name.trim() || !editingExerciseId) return
+
+    const totalSeconds = exerciseForm.durationMinutes * 60 + exerciseForm.durationSeconds
 
     setExercises(
       exercises.map((ex) =>
@@ -101,6 +122,8 @@ export default function CrearRutinaPage() {
               sets: exerciseForm.sets,
               reps: exerciseForm.reps,
               weight: exerciseForm.weight,
+              exerciseType: exerciseForm.exerciseType,
+              durationSeconds: exerciseForm.exerciseType === 'time' ? totalSeconds : null,
             }
           : ex,
       ),
@@ -158,8 +181,10 @@ export default function CrearRutinaPage() {
         media_url: ex.mediaUrl || null,
         sets: ex.sets,
         reps: ex.reps,
-        weight: ex.weight,
+        weight: ex.exerciseType === 'weight' ? ex.weight : 0,
         order_index: ex.orderIndex,
+        exercise_type: ex.exerciseType,
+        duration_seconds: ex.exerciseType === 'time' ? ex.durationSeconds : null,
       }))
 
       const { error: exercisesError } = await supabase
@@ -231,10 +256,16 @@ export default function CrearRutinaPage() {
                     </div>
                   </div>
                   <div className="ml-8 flex gap-4 text-sm text-muted-foreground">
-                    <span>
-                      {exercise.sets} series × {exercise.reps} reps
-                    </span>
-                    {exercise.weight > 0 && <span>{exercise.weight} kg</span>}
+                    {exercise.exerciseType === 'weight' ? (
+                      <>
+                        <span>{exercise.sets} series × {exercise.reps} reps</span>
+                        {exercise.weight > 0 && <span>{exercise.weight} kg</span>}
+                      </>
+                    ) : (
+                      <span>
+                        {exercise.sets} series × {Math.floor((exercise.durationSeconds || 0) / 60)}:{((exercise.durationSeconds || 0) % 60).toString().padStart(2, '0')} min
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="flex gap-1">
@@ -289,41 +320,95 @@ export default function CrearRutinaPage() {
               />
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="sets">Series</Label>
-                <Input
-                  id="sets"
-                  type="number"
-                  min="1"
-                  value={exerciseForm.sets}
-                  onChange={(e) => setExerciseForm({ ...exerciseForm, sets: Number.parseInt(e.target.value) || 1 })}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="reps">Reps</Label>
-                <Input
-                  id="reps"
-                  type="number"
-                  min="1"
-                  value={exerciseForm.reps}
-                  onChange={(e) => setExerciseForm({ ...exerciseForm, reps: Number.parseInt(e.target.value) || 1 })}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="weight">Peso (kg)</Label>
-                <Input
-                  id="weight"
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={exerciseForm.weight}
-                  onChange={(e) => setExerciseForm({ ...exerciseForm, weight: Number.parseFloat(e.target.value) || 0 })}
-                />
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="exerciseType">Tipo de ejercicio</Label>
+              <Select
+                value={exerciseForm.exerciseType}
+                onValueChange={(value: 'weight' | 'time') => setExerciseForm({ ...exerciseForm, exerciseType: value })}
+              >
+                <SelectTrigger id="exerciseType">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="weight">Peso y repeticiones</SelectItem>
+                  <SelectItem value="time">Tiempo (duración)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+
+            {exerciseForm.exerciseType === 'weight' ? (
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="sets">Series</Label>
+                  <Input
+                    id="sets"
+                    type="number"
+                    min="1"
+                    value={exerciseForm.sets}
+                    onChange={(e) => setExerciseForm({ ...exerciseForm, sets: Number.parseInt(e.target.value) || 1 })}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="reps">Reps</Label>
+                  <Input
+                    id="reps"
+                    type="number"
+                    min="1"
+                    value={exerciseForm.reps}
+                    onChange={(e) => setExerciseForm({ ...exerciseForm, reps: Number.parseInt(e.target.value) || 1 })}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="weight">Peso (kg)</Label>
+                  <Input
+                    id="weight"
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={exerciseForm.weight}
+                    onChange={(e) => setExerciseForm({ ...exerciseForm, weight: Number.parseFloat(e.target.value) || 0 })}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="sets">Series</Label>
+                  <Input
+                    id="sets"
+                    type="number"
+                    min="1"
+                    value={exerciseForm.sets}
+                    onChange={(e) => setExerciseForm({ ...exerciseForm, sets: Number.parseInt(e.target.value) || 1 })}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="durationMinutes">Minutos</Label>
+                  <Input
+                    id="durationMinutes"
+                    type="number"
+                    min="0"
+                    value={exerciseForm.durationMinutes}
+                    onChange={(e) => setExerciseForm({ ...exerciseForm, durationMinutes: Number.parseInt(e.target.value) || 0 })}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="durationSeconds">Segundos</Label>
+                  <Input
+                    id="durationSeconds"
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={exerciseForm.durationSeconds}
+                    onChange={(e) => setExerciseForm({ ...exerciseForm, durationSeconds: Number.parseInt(e.target.value) || 0 })}
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="flex gap-2">
               <Button

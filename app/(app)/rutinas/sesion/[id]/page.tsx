@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { ExternalLink, Clock, CheckCircle2 } from "lucide-react"
+import { ExternalLink, Clock, CheckCircle2, Plus, Trash2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 
 type Exercise = {
@@ -26,12 +26,15 @@ type Exercise = {
   reps: number
   weight: number
   orderIndex: number
+  exerciseType: 'weight' | 'time'
+  durationSeconds: number | null
 }
 
 type SetData = {
   setNumber: number
   weight: number
   reps: number
+  durationSeconds: number | null
 }
 
 type RoutineTemplate = {
@@ -94,7 +97,9 @@ export default function SesionRutinaPage() {
             sets,
             reps,
             weight,
-            order_index
+            order_index,
+            exercise_type,
+            duration_seconds
           )
         `,
         )
@@ -116,6 +121,8 @@ export default function SesionRutinaPage() {
           reps: ex.reps,
           weight: ex.weight,
           orderIndex: ex.order_index,
+          exerciseType: ex.exercise_type || 'weight',
+          durationSeconds: ex.duration_seconds,
         }))
         .sort((a, b) => a.orderIndex - b.orderIndex)
 
@@ -132,8 +139,9 @@ export default function SesionRutinaPage() {
         for (let i = 1; i <= ex.sets; i++) {
           sets.push({
             setNumber: i,
-            weight: ex.weight,
+            weight: ex.exerciseType === 'weight' ? ex.weight : 0,
             reps: ex.reps,
+            durationSeconds: ex.exerciseType === 'time' ? ex.durationSeconds : null,
           })
         }
         initialSets[ex.id] = sets
@@ -144,6 +152,51 @@ export default function SesionRutinaPage() {
 
     loadTemplate()
   }, [templateId, router])
+
+  const addSet = (exerciseId: string) => {
+    const exercise = template?.exercises.find(ex => ex.id === exerciseId)
+    if (!exercise) return
+    
+    setExerciseSets((prev) => {
+      const currentSets = prev[exerciseId] || []
+      const newSetNumber = currentSets.length + 1
+      return {
+        ...prev,
+        [exerciseId]: [
+          ...currentSets,
+          {
+            setNumber: newSetNumber,
+            weight: exercise.exerciseType === 'weight' ? exercise.weight : 0,
+            reps: exercise.reps,
+            durationSeconds: exercise.exerciseType === 'time' ? exercise.durationSeconds : null,
+          },
+        ],
+      }
+    })
+  }
+
+  const removeSet = (exerciseId: string, setIndex: number) => {
+    setExerciseSets((prev) => {
+      const currentSets = prev[exerciseId] || []
+      if (currentSets.length <= 1) return prev // No eliminar si solo hay una serie
+      
+      const newSets = currentSets.filter((_, idx) => idx !== setIndex)
+      // Renumerar las series
+      const renumberedSets = newSets.map((set, idx) => ({
+        ...set,
+        setNumber: idx + 1,
+      }))
+      
+      return { ...prev, [exerciseId]: renumberedSets }
+    })
+  }
+
+  const formatDuration = (seconds: number | null) => {
+    if (!seconds) return '0:00'
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
 
   const handleFinishWorkout = async () => {
     if (!template) return
@@ -186,10 +239,12 @@ export default function SesionRutinaPage() {
             workout_id: workout.id,
             name: ex.name,
             media_url: ex.mediaUrl,
-            sets: ex.sets,
-            reps: ex.reps,
-            weight: sets[0]?.weight ?? ex.weight, // Peso de la primera serie como referencia
+            sets: sets.length,
+            reps: ex.exerciseType === 'weight' ? ex.reps : 0,
+            weight: ex.exerciseType === 'weight' ? (sets[0]?.weight ?? ex.weight) : null,
             order_index: ex.orderIndex,
+            exercise_type: ex.exerciseType,
+            duration_seconds: ex.exerciseType === 'time' ? ex.durationSeconds : null,
           })
           .select()
           .single()
@@ -200,8 +255,9 @@ export default function SesionRutinaPage() {
         const setsToInsert = sets.map((set) => ({
           exercise_id: exerciseData.id,
           set_number: set.setNumber,
-          reps: set.reps,
-          weight: set.weight,
+          reps: ex.exerciseType === 'weight' ? set.reps : 0,
+          weight: ex.exerciseType === 'weight' ? set.weight : null,
+          duration_seconds: ex.exerciseType === 'time' ? set.durationSeconds : null,
         }))
 
         const { error: setsError } = await supabase.from("exercise_sets").insert(setsToInsert)
@@ -273,44 +329,111 @@ export default function SesionRutinaPage() {
                   </div>
                   {/* Series individuales */}
                   <div className="mt-3 space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground">Series:</p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-medium text-muted-foreground">Series:</p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs"
+                        onClick={() => addSet(exercise.id)}
+                      >
+                        <Plus className="h-3 w-3 mr-1" />
+                        Agregar
+                      </Button>
+                    </div>
                     {(exerciseSets[exercise.id] || []).map((set, setIndex) => (
                       <div key={setIndex} className="flex items-center gap-2">
                         <span className="text-xs text-muted-foreground w-12">Serie {set.setNumber}:</span>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.5"
-                          value={set.weight}
-                          onChange={(e) => {
-                            const newWeight = parseFloat(e.target.value) || 0
-                            setExerciseSets((prev) => {
-                              const sets = [...(prev[exercise.id] || [])]
-                              sets[setIndex] = { ...sets[setIndex], weight: newWeight }
-                              return { ...prev, [exercise.id]: sets }
-                            })
-                          }}
-                          className="h-8 w-20"
-                          placeholder="Peso"
-                        />
-                        <span className="text-xs text-muted-foreground">kg</span>
-                        <span className="text-xs text-muted-foreground">×</span>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={set.reps}
-                          onChange={(e) => {
-                            const newReps = parseInt(e.target.value) || 0
-                            setExerciseSets((prev) => {
-                              const sets = [...(prev[exercise.id] || [])]
-                              sets[setIndex] = { ...sets[setIndex], reps: newReps }
-                              return { ...prev, [exercise.id]: sets }
-                            })
-                          }}
-                          className="h-8 w-16"
-                          placeholder="Reps"
-                        />
-                        <span className="text-xs text-muted-foreground">reps</span>
+                        {exercise.exerciseType === 'weight' ? (
+                          <>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.5"
+                              value={set.weight}
+                              onChange={(e) => {
+                                const newWeight = parseFloat(e.target.value) || 0
+                                setExerciseSets((prev) => {
+                                  const sets = [...(prev[exercise.id] || [])]
+                                  sets[setIndex] = { ...sets[setIndex], weight: newWeight }
+                                  return { ...prev, [exercise.id]: sets }
+                                })
+                              }}
+                              className="h-8 w-20"
+                              placeholder="Peso"
+                            />
+                            <span className="text-xs text-muted-foreground">kg</span>
+                            <span className="text-xs text-muted-foreground">×</span>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={set.reps}
+                              onChange={(e) => {
+                                const newReps = parseInt(e.target.value) || 0
+                                setExerciseSets((prev) => {
+                                  const sets = [...(prev[exercise.id] || [])]
+                                  sets[setIndex] = { ...sets[setIndex], reps: newReps }
+                                  return { ...prev, [exercise.id]: sets }
+                                })
+                              }}
+                              className="h-8 w-16"
+                              placeholder="Reps"
+                            />
+                            <span className="text-xs text-muted-foreground">reps</span>
+                          </>
+                        ) : (
+                          <>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={Math.floor((set.durationSeconds || 0) / 60)}
+                              onChange={(e) => {
+                                const mins = parseInt(e.target.value) || 0
+                                const currentSecs = (set.durationSeconds || 0) % 60
+                                const newDuration = mins * 60 + currentSecs
+                                setExerciseSets((prev) => {
+                                  const sets = [...(prev[exercise.id] || [])]
+                                  sets[setIndex] = { ...sets[setIndex], durationSeconds: newDuration }
+                                  return { ...prev, [exercise.id]: sets }
+                                })
+                              }}
+                              className="h-8 w-16"
+                              placeholder="Min"
+                            />
+                            <span className="text-xs text-muted-foreground">min</span>
+                            <Input
+                              type="number"
+                              min="0"
+                              max="59"
+                              value={(set.durationSeconds || 0) % 60}
+                              onChange={(e) => {
+                                const secs = parseInt(e.target.value) || 0
+                                const currentMins = Math.floor((set.durationSeconds || 0) / 60)
+                                const newDuration = currentMins * 60 + secs
+                                setExerciseSets((prev) => {
+                                  const sets = [...(prev[exercise.id] || [])]
+                                  sets[setIndex] = { ...sets[setIndex], durationSeconds: newDuration }
+                                  return { ...prev, [exercise.id]: sets }
+                                })
+                              }}
+                              className="h-8 w-16"
+                              placeholder="Seg"
+                            />
+                            <span className="text-xs text-muted-foreground">seg</span>
+                          </>
+                        )}
+                        {(exerciseSets[exercise.id] || []).length > 1 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => removeSet(exercise.id, setIndex)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        )}
                       </div>
                     ))}
                   </div>
